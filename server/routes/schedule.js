@@ -143,6 +143,47 @@ router.get('/tasks', (req, res) => {
     }
 });
 
+// Debug cron status
+router.get('/debug', async (req, res) => {
+    try {
+        const fileStorage = require('../utils/fileStorage');
+        const messages = await fileStorage.getMessages();
+        const settings = await fileStorage.getSettings();
+
+        const now = new Date();
+        const [hour, minute] = messages.dailyMessage.time.split(':');
+        const cronPattern = `${minute} ${hour} * * *`;
+
+        const nextRun = new Date();
+        nextRun.setHours(parseInt(hour), parseInt(minute), 0, 0);
+        if (nextRun <= now) {
+            nextRun.setDate(nextRun.getDate() + 1);
+        }
+
+        res.json({
+            success: true,
+            data: {
+                currentTime: now.toISOString(),
+                currentTimeLocal: now.toLocaleString('he-IL', { timeZone: settings.schedule.timezone }),
+                scheduledTime: messages.dailyMessage.time,
+                cronPattern: cronPattern,
+                nextRun: nextRun.toISOString(),
+                nextRunLocal: nextRun.toLocaleString('he-IL', { timeZone: settings.schedule.timezone }),
+                messageEnabled: messages.dailyMessage.enabled,
+                scheduleEnabled: settings.schedule.enabled,
+                timezone: settings.schedule.timezone,
+                selectedGroups: settings.selectedGroups?.length || 0,
+                activeTasks: cronService.getScheduledTasks().length
+            }
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
 // Get next scheduled run times
 router.get('/next-runs', async (req, res) => {
     try {

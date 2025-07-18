@@ -1,14 +1,21 @@
 const express = require('express');
 const router = express.Router();
-const fileStorage = require('../utils/fileStorage');
+const User = require('../models/User');
+const { auth } = require('../middleware/auth');
 
-// Get all message data
+// Apply authentication to all routes
+router.use(auth);
+
+// Get all message data for current user
 router.get('/', async (req, res) => {
     try {
-        const messages = await fileStorage.getMessages();
+        const user = await User.findById(req.user._id);
         res.json({
             success: true,
-            data: messages
+            data: {
+                dailyMessage: user.dailyMessage,
+                sentMessages: user.sentMessages || []
+            }
         });
     } catch (error) {
         res.status(500).json({
@@ -18,13 +25,13 @@ router.get('/', async (req, res) => {
     }
 });
 
-// Get daily message settings
+// Get daily message settings for current user
 router.get('/daily', async (req, res) => {
     try {
-        const messages = await fileStorage.getMessages();
+        const user = await User.findById(req.user._id);
         res.json({
             success: true,
-            data: messages.dailyMessage
+            data: user.dailyMessage
         });
     } catch (error) {
         res.status(500).json({
@@ -34,10 +41,16 @@ router.get('/daily', async (req, res) => {
     }
 });
 
-// Update daily message
+// Update daily message for current user
 router.put('/daily', async (req, res) => {
     try {
         const { text, time, enabled, imagePath } = req.body;
+
+        console.log('📝 Updating daily message for user:', req.user.username);
+        console.log('  Text:', text);
+        console.log('  Time:', time);
+        console.log('  Enabled:', enabled);
+        console.log('  Image Path:', imagePath);
 
         if (!text || !time) {
             return res.status(400).json({
@@ -55,23 +68,26 @@ router.put('/daily', async (req, res) => {
             });
         }
 
-        const messages = await fileStorage.getMessages();
-        messages.dailyMessage = {
-            text: text.trim(),
-            time: time.trim(),
-            enabled: enabled !== undefined ? enabled : messages.dailyMessage.enabled,
-            imagePath: imagePath || null,
-            updatedAt: new Date().toISOString()
-        };
+        const updatedUser = await User.findByIdAndUpdate(
+            req.user._id,
+            {
+                'dailyMessage.text': text.trim(),
+                'dailyMessage.time': time.trim(),
+                'dailyMessage.enabled': enabled !== undefined ? enabled : req.user.dailyMessage.enabled,
+                'dailyMessage.imagePath': imagePath || null
+            },
+            { new: true }
+        );
 
-        await fileStorage.saveMessages(messages);
+        console.log('💾 Saved daily message:', updatedUser.dailyMessage);
 
         res.json({
             success: true,
             message: 'Daily message updated successfully',
-            data: messages.dailyMessage
+            data: updatedUser.dailyMessage
         });
     } catch (error) {
+        console.error('❌ Error updating daily message:', error);
         res.status(500).json({
             success: false,
             message: error.message
@@ -79,19 +95,23 @@ router.put('/daily', async (req, res) => {
     }
 });
 
-// Toggle daily message status
+// Toggle daily message status for current user
 router.patch('/daily/toggle', async (req, res) => {
     try {
-        const messages = await fileStorage.getMessages();
-        messages.dailyMessage.enabled = !messages.dailyMessage.enabled;
-        messages.dailyMessage.updatedAt = new Date().toISOString();
+        const user = await User.findById(req.user._id);
 
-        await fileStorage.saveMessages(messages);
+        const updatedUser = await User.findByIdAndUpdate(
+            req.user._id,
+            {
+                'dailyMessage.enabled': !user.dailyMessage.enabled
+            },
+            { new: true }
+        );
 
         res.json({
             success: true,
-            message: `Daily message ${messages.dailyMessage.enabled ? 'enabled' : 'disabled'}`,
-            data: messages.dailyMessage
+            message: `Daily message ${updatedUser.dailyMessage.enabled ? 'enabled' : 'disabled'}`,
+            data: updatedUser.dailyMessage
         });
     } catch (error) {
         res.status(500).json({
@@ -101,16 +121,16 @@ router.patch('/daily/toggle', async (req, res) => {
     }
 });
 
-// Get sent messages history
+// Get sent messages history for current user
 router.get('/history', async (req, res) => {
     try {
         const { page = 1, limit = 50 } = req.query;
-        const messages = await fileStorage.getMessages();
+        const user = await User.findById(req.user._id);
 
         const startIndex = (page - 1) * limit;
         const endIndex = startIndex + parseInt(limit);
 
-        const paginatedMessages = messages.sentMessages
+        const paginatedMessages = (user.sentMessages || [])
             .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
             .slice(startIndex, endIndex);
 
@@ -121,8 +141,8 @@ router.get('/history', async (req, res) => {
                 pagination: {
                     page: parseInt(page),
                     limit: parseInt(limit),
-                    total: messages.sentMessages.length,
-                    pages: Math.ceil(messages.sentMessages.length / limit)
+                    total: user.sentMessages?.length || 0,
+                    pages: Math.ceil((user.sentMessages?.length || 0) / limit)
                 }
             }
         });
@@ -134,12 +154,12 @@ router.get('/history', async (req, res) => {
     }
 });
 
-// Clear sent messages history
+// Clear sent messages history for current user
 router.delete('/history', async (req, res) => {
     try {
-        const messages = await fileStorage.getMessages();
-        messages.sentMessages = [];
-        await fileStorage.saveMessages(messages);
+        await User.findByIdAndUpdate(req.user._id, {
+            sentMessages: []
+        });
 
         res.json({
             success: true,
@@ -153,11 +173,11 @@ router.delete('/history', async (req, res) => {
     }
 });
 
-// Get message statistics
+// Get message statistics for current user
 router.get('/stats', async (req, res) => {
     try {
-        const messages = await fileStorage.getMessages();
-        const sentMessages = messages.sentMessages;
+        const user = await User.findById(req.user._id);
+        const sentMessages = user.sentMessages || [];
 
         const now = new Date();
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -171,7 +191,7 @@ router.get('/stats', async (req, res) => {
             today: sentMessages.filter(m => new Date(m.timestamp) >= today).length,
             thisWeek: sentMessages.filter(m => new Date(m.timestamp) >= thisWeek).length,
             thisMonth: sentMessages.filter(m => new Date(m.timestamp) >= thisMonth).length,
-            dailyMessageEnabled: messages.dailyMessage.enabled,
+            dailyMessageEnabled: user.dailyMessage.enabled,
             lastSent: sentMessages.length > 0 ? sentMessages[sentMessages.length - 1].timestamp : null
         };
 

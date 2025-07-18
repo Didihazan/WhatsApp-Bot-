@@ -9,7 +9,7 @@ const connectDB = require('./config/database');
 connectDB();
 
 // Import services
-const whatsappService = require('./services/whatsappService');
+const whatsappService = require('./services/whatsappMultiUserService');
 const cronService = require('./services/cronService');
 
 // Import routes
@@ -76,7 +76,8 @@ app.listen(PORT, async () => {
 
     // Initialize services
     try {
-        await whatsappService.initialize();
+        // Don't initialize WhatsApp for specific users at startup
+        // Users will connect individually when they log in
         cronService.initialize();
         console.log('✅ Services initialized successfully');
     } catch (error) {
