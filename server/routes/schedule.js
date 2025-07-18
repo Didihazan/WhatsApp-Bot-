@@ -1,20 +1,23 @@
 const express = require('express');
 const router = express.Router();
 const cronService = require('../services/cronService');
-const fileStorage = require('../utils/fileStorage');
+const User = require('../models/User');
+const { auth } = require('../middleware/auth');
 
-// Get schedule settings
+// Apply authentication to all routes
+router.use(auth);
+
+// Get schedule settings for current user
 router.get('/', async (req, res) => {
     try {
-        const settings = await fileStorage.getSettings();
-        const messages = await fileStorage.getMessages();
+        const user = await User.findById(req.user._id);
 
         res.json({
             success: true,
             data: {
-                schedule: settings.schedule,
-                dailyMessage: messages.dailyMessage,
-                tasks: cronService.getScheduledTasks()
+                schedule: user.schedule,
+                dailyMessage: user.dailyMessage,
+                tasks: cronService.getScheduledTasks().filter(task => task.userId === req.user._id.toString())
             }
         });
     } catch (error) {
@@ -25,33 +28,32 @@ router.get('/', async (req, res) => {
     }
 });
 
-// Update schedule settings
+// Update schedule settings for current user
 router.put('/', async (req, res) => {
     try {
         const { enabled, timezone } = req.body;
 
-        const settings = await fileStorage.getSettings();
-
+        const updateData = {};
         if (enabled !== undefined) {
-            settings.schedule.enabled = enabled;
+            updateData['schedule.enabled'] = enabled;
         }
-
         if (timezone) {
-            settings.schedule.timezone = timezone;
+            updateData['schedule.timezone'] = timezone;
         }
 
-        settings.schedule.updatedAt = new Date().toISOString();
-        await fileStorage.saveSettings(settings);
+        const user = await User.findByIdAndUpdate(req.user._id, updateData, { new: true });
 
-        // Restart cron service if enabled
-        if (settings.schedule.enabled) {
-            await cronService.setupDailyMessage();
+        // Restart cron service for this user if enabled
+        if (user.schedule.enabled && user.dailyMessage.enabled) {
+            await cronService.restartUserCron(req.user._id);
+        } else {
+            cronService.removeCronTask(req.user._id);
         }
 
         res.json({
             success: true,
             message: 'Schedule settings updated successfully',
-            data: settings.schedule
+            data: user.schedule
         });
     } catch (error) {
         res.status(500).json({
@@ -61,7 +63,7 @@ router.put('/', async (req, res) => {
     }
 });
 
-// Update daily message schedule
+// Update daily message schedule for current user
 router.put('/daily', async (req, res) => {
     try {
         const { time, enabled } = req.body;
@@ -82,7 +84,7 @@ router.put('/daily', async (req, res) => {
             });
         }
 
-        const result = await cronService.updateDailyMessageSchedule(time, enabled);
+        const result = await cronService.updateDailyMessageSchedule(req.user._id, time, enabled);
 
         if (result.success) {
             res.json({
@@ -103,10 +105,10 @@ router.put('/daily', async (req, res) => {
     }
 });
 
-// Trigger daily message manually
+// Trigger daily message manually for current user
 router.post('/trigger', async (req, res) => {
     try {
-        const result = await cronService.triggerDailyMessage();
+        const result = await cronService.triggerDailyMessageForUser(req.user._id);
 
         if (result.success) {
             res.json({
@@ -127,13 +129,15 @@ router.post('/trigger', async (req, res) => {
     }
 });
 
-// Get scheduled tasks status
+// Get scheduled tasks status for current user
 router.get('/tasks', (req, res) => {
     try {
-        const tasks = cronService.getScheduledTasks();
+        const allTasks = cronService.getScheduledTasks();
+        const userTasks = allTasks.filter(task => task.userId === req.user._id.toString());
+
         res.json({
             success: true,
-            data: tasks
+            data: userTasks
         });
     } catch (error) {
         res.status(500).json({
@@ -143,15 +147,13 @@ router.get('/tasks', (req, res) => {
     }
 });
 
-// Debug cron status
+// Debug cron status for current user
 router.get('/debug', async (req, res) => {
     try {
-        const fileStorage = require('../utils/fileStorage');
-        const messages = await fileStorage.getMessages();
-        const settings = await fileStorage.getSettings();
+        const user = await User.findById(req.user._id);
 
         const now = new Date();
-        const [hour, minute] = messages.dailyMessage.time.split(':');
+        const [hour, minute] = user.dailyMessage.time.split(':');
         const cronPattern = `${minute} ${hour} * * *`;
 
         const nextRun = new Date();
@@ -164,16 +166,16 @@ router.get('/debug', async (req, res) => {
             success: true,
             data: {
                 currentTime: now.toISOString(),
-                currentTimeLocal: now.toLocaleString('he-IL', { timeZone: settings.schedule.timezone }),
-                scheduledTime: messages.dailyMessage.time,
+                currentTimeLocal: now.toLocaleString('he-IL', { timeZone: user.schedule.timezone }),
+                scheduledTime: user.dailyMessage.time,
                 cronPattern: cronPattern,
                 nextRun: nextRun.toISOString(),
-                nextRunLocal: nextRun.toLocaleString('he-IL', { timeZone: settings.schedule.timezone }),
-                messageEnabled: messages.dailyMessage.enabled,
-                scheduleEnabled: settings.schedule.enabled,
-                timezone: settings.schedule.timezone,
-                selectedGroups: settings.selectedGroups?.length || 0,
-                activeTasks: cronService.getScheduledTasks().length
+                nextRunLocal: nextRun.toLocaleString('he-IL', { timeZone: user.schedule.timezone }),
+                messageEnabled: user.dailyMessage.enabled,
+                scheduleEnabled: user.schedule.enabled,
+                timezone: user.schedule.timezone,
+                selectedGroups: user.selectedGroups?.length || 0,
+                activeTasks: cronService.getScheduledTasks().filter(task => task.userId === req.user._id.toString()).length
             }
         });
     } catch (error) {
@@ -184,13 +186,12 @@ router.get('/debug', async (req, res) => {
     }
 });
 
-// Get next scheduled run times
+// Get next scheduled run times for current user
 router.get('/next-runs', async (req, res) => {
     try {
-        const messages = await fileStorage.getMessages();
-        const settings = await fileStorage.getSettings();
+        const user = await User.findById(req.user._id);
 
-        if (!messages.dailyMessage.enabled || !settings.schedule.enabled) {
+        if (!user.dailyMessage.enabled || !user.schedule.enabled) {
             return res.json({
                 success: true,
                 data: {
@@ -201,7 +202,7 @@ router.get('/next-runs', async (req, res) => {
         }
 
         // Calculate next run time
-        const [hour, minute] = messages.dailyMessage.time.split(':');
+        const [hour, minute] = user.dailyMessage.time.split(':');
         const now = new Date();
         const nextRun = new Date();
 
@@ -217,8 +218,8 @@ router.get('/next-runs', async (req, res) => {
             data: {
                 nextRun: nextRun.toISOString(),
                 timeUntilNext: nextRun.getTime() - now.getTime(),
-                dailyTime: messages.dailyMessage.time,
-                timezone: settings.schedule.timezone
+                dailyTime: user.dailyMessage.time,
+                timezone: user.schedule.timezone
             }
         });
     } catch (error) {

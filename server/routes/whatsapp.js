@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const whatsappService = require('../services/whatsappService');
+const whatsappService = require('../services/whatsappMultiUserService');
+const User = require('../models/User');
 const { auth } = require('../middleware/auth');
 
 // Apply authentication to all routes
@@ -153,6 +154,131 @@ router.post('/send-group', async (req, res) => {
         });
     } catch (error) {
         console.error('❌ Send-group error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+// Get selected groups for current user
+router.get('/selected-groups', async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id);
+        res.json({
+            success: true,
+            data: user.selectedGroups || []
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+// Add group to selected for current user
+router.post('/selected-groups/add', async (req, res) => {
+    try {
+        const { groupId, groupName } = req.body;
+
+        if (!groupId || !groupName) {
+            return res.status(400).json({
+                success: false,
+                message: 'Group ID and name are required'
+            });
+        }
+
+        const user = await User.findById(req.user._id);
+
+        // Check if group already selected
+        const exists = user.selectedGroups.find(g => g.id === groupId);
+        if (exists) {
+            return res.status(400).json({
+                success: false,
+                message: 'קבוצה כבר נבחרה'
+            });
+        }
+
+        // Add group
+        user.selectedGroups.push({
+            id: groupId,
+            name: groupName,
+            addedAt: new Date(),
+            enabled: true
+        });
+
+        await user.save();
+
+        res.json({
+            success: true,
+            message: 'קבוצה נוספה בהצלחה',
+            data: user.selectedGroups
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+// Remove group from selected for current user
+router.delete('/selected-groups/:groupId', async (req, res) => {
+    try {
+        const { groupId } = req.params;
+
+        const user = await User.findById(req.user._id);
+        const index = user.selectedGroups.findIndex(g => g.id === groupId);
+
+        if (index === -1) {
+            return res.status(404).json({
+                success: false,
+                message: 'קבוצה לא נמצאה'
+            });
+        }
+
+        const removedGroup = user.selectedGroups.splice(index, 1)[0];
+        await user.save();
+
+        res.json({
+            success: true,
+            message: 'קבוצה הוסרה בהצלחה',
+            data: user.selectedGroups,
+            removed: removedGroup
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+// Toggle group status for current user
+router.patch('/selected-groups/:groupId/toggle', async (req, res) => {
+    try {
+        const { groupId } = req.params;
+
+        const user = await User.findById(req.user._id);
+        const group = user.selectedGroups.find(g => g.id === groupId);
+
+        if (!group) {
+            return res.status(404).json({
+                success: false,
+                message: 'קבוצה לא נמצאה'
+            });
+        }
+
+        group.enabled = !group.enabled;
+        await user.save();
+
+        res.json({
+            success: true,
+            message: `קבוצה ${group.enabled ? 'הופעלה' : 'הושבתה'}`,
+            data: user.selectedGroups
+        });
+    } catch (error) {
         res.status(500).json({
             success: false,
             message: error.message

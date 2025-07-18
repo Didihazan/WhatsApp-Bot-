@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Smartphone, Wifi, WifiOff, RefreshCw, Users, Plus, Check, X, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Smartphone, Wifi, WifiOff, RefreshCw, Users, Plus, Check, X, ToggleLeft, ToggleRight, Copy } from 'lucide-react';
 import { useWhatsApp } from '../hooks/useApi';
 
 const WhatsAppConnection = () => {
@@ -16,6 +16,7 @@ const WhatsAppConnection = () => {
         toggleSelectedGroup
     } = useWhatsApp();
     const [isConnecting, setIsConnecting] = useState(false);
+    const [qrCodeCopied, setQrCodeCopied] = useState(false);
 
     const handleConnect = async () => {
         setIsConnecting(true);
@@ -60,6 +61,18 @@ const WhatsAppConnection = () => {
             alert(`✅ ${result.message}`);
         } else {
             alert(`❌ ${result.message}`);
+        }
+    };
+
+    const copyQRCode = async () => {
+        if (status.qrCode) {
+            try {
+                await navigator.clipboard.writeText(status.qrCode);
+                setQrCodeCopied(true);
+                setTimeout(() => setQrCodeCopied(false), 2000);
+            } catch (error) {
+                console.error('Failed to copy QR code:', error);
+            }
         }
     };
 
@@ -158,26 +171,64 @@ const WhatsAppConnection = () => {
                 </div>
             </div>
 
-            {/* QR Code Display */}
+            {/* QR Code Display - משופר! */}
             {status.qrCode && (
-                <div className="bg-white rounded-lg shadow-lg p-6 text-center">
-                    <h3 className="text-lg font-bold mb-4">סרוק QR Code</h3>
-                    <div className="bg-gray-100 p-4 rounded-lg mb-4">
-                        <div className="text-4xl">📱</div>
-                        <p className="text-gray-600 mt-2">
-                            פתח WhatsApp בטלפון → הגדרות → מכשירים מקושרים → קשר מכשיר
-                        </p>
+                <div className="bg-white rounded-lg shadow-lg p-6">
+                    <div className="text-center">
+                        <h3 className="text-lg font-bold mb-4 text-green-700">
+                            📱 סרוק QR Code עם WhatsApp
+                        </h3>
+
+                        {/* הוראות */}
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                            <div className="flex items-center justify-center space-x-2 rtl:space-x-reverse mb-2">
+                                <Smartphone className="w-5 h-5 text-blue-600" />
+                                <span className="font-medium text-blue-800">איך לסרוק:</span>
+                            </div>
+                            <ol className="text-sm text-blue-700 space-y-1 text-right">
+                                <li>1. פתח את WhatsApp בטלפון שלך</li>
+                                <li>2. לך להגדרות ← מכשירים מקושרים</li>
+                                <li>3. לחץ על "קשר מכשיר"</li>
+                                <li>4. סרוק את הקוד למטה</li>
+                            </ol>
+                        </div>
+
+                        {/* QR Code עצמו */}
+                        <div className="bg-white border-2 border-gray-300 rounded-lg p-6 mb-4 inline-block">
+                            <img
+                                src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(status.qrCode)}`}
+                                alt="QR Code לחיבור WhatsApp"
+                                className="mx-auto rounded-lg"
+                                style={{ imageRendering: 'pixelated' }}
+                            />
+                        </div>
+
+                        {/* כפתור העתקה */}
+                        <div className="flex items-center justify-center space-x-3 rtl:space-x-reverse">
+                            <button
+                                onClick={copyQRCode}
+                                className={`flex items-center space-x-2 rtl:space-x-reverse px-4 py-2 rounded-lg transition-colors ${
+                                    qrCodeCopied
+                                        ? 'bg-green-100 text-green-700'
+                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                }`}
+                                title="העתק טקסט QR"
+                            >
+                                <Copy className="w-4 h-4" />
+                                <span>{qrCodeCopied ? 'הועתק!' : 'העתק קוד'}</span>
+                            </button>
+                        </div>
+
+                        {/* התראות */}
+                        <div className="mt-4 space-y-2">
+                            <p className="text-sm text-orange-600 font-medium">
+                                ⏰ הקוד יפוג תוך דקה
+                            </p>
+                            <p className="text-xs text-gray-500">
+                                אם הקוד לא עובד, לחץ על "התחבר לWhatsApp" שוב
+                            </p>
+                        </div>
                     </div>
-                    <div className="bg-white border-2 border-dashed border-gray-300 p-4 rounded-lg">
-                        <img
-                            src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(status.qrCode)}`}
-                            alt="QR Code"
-                            className="mx-auto"
-                        />
-                    </div>
-                    <p className="text-sm text-gray-500 mt-2">
-                        הקוד יפוג תוך דקה. אם הוא לא עובד, לחץ על "התחבר לWhatsApp" שוב.
-                    </p>
                 </div>
             )}
 

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { MessageSquare, Clock, Save, ToggleLeft, ToggleRight, Send, Upload, Image, X, Trash2 } from 'lucide-react';
 import { useMessages, useSchedule, useWhatsApp } from '../hooks/useApi';
-import { uploadApi } from '../utils/api';
+import { uploadApi, getUserImageURL } from '../utils/api';
 
 const MessageSettings = () => {
     const { dailyMessage, updateDailyMessage, toggleDailyMessage } = useMessages();
@@ -42,6 +42,10 @@ const MessageSettings = () => {
         } catch (error) {
             console.error('Error fetching images:', error);
         }
+    };
+
+    const getImageURL = (imagePath) => {
+        return getUserImageURL(imagePath);
     };
 
     const handleImageUpload = async (event) => {
@@ -291,7 +295,7 @@ const MessageSettings = () => {
                                                 className="aspect-square"
                                             >
                                                 <img
-                                                    src={`http://localhost:5000/${image.path}`}
+                                                    src={getImageURL(image.path)}
                                                     alt="Preview"
                                                     className="w-full h-full object-cover rounded"
                                                 />

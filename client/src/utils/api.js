@@ -1,6 +1,18 @@
 import axios from 'axios';
 
-const API_BASE_URL = '/api';
+// הגדרת URL בסיס בהתאם לסביבת העבודה
+const getBaseURL = () => {
+    // בדיקה אם אנחנו בסביבת פרודקשן
+    if (import.meta.env.PROD) {
+        // URL של הבקאנד בפרודקשן
+        return 'https://whatsapp-bot-server-hprc.onrender.com';
+    } else {
+        // URL של הבקאנד בפיתוח
+        return 'http://localhost:5000';
+    }
+};
+
+const API_BASE_URL = `${getBaseURL()}/api`;
 
 const api = axios.create({
     baseURL: API_BASE_URL,
@@ -72,10 +84,10 @@ export const whatsappApi = {
     refreshGroups: () => api.post('/whatsapp/groups/refresh'),
 
     // Selected Groups
-    getSelectedGroups: () => api.get('/selected-groups'),
-    addSelectedGroup: (groupId, groupName) => api.post('/selected-groups/add', { groupId, groupName }),
-    removeSelectedGroup: (groupId) => api.delete(`/selected-groups/${groupId}`),
-    toggleSelectedGroup: (groupId) => api.patch(`/selected-groups/${groupId}/toggle`),
+    getSelectedGroups: () => api.get('/whatsapp/selected-groups'),
+    addSelectedGroup: (groupId, groupName) => api.post('/whatsapp/selected-groups/add', { groupId, groupName }),
+    removeSelectedGroup: (groupId) => api.delete(`/whatsapp/selected-groups/${groupId}`),
+    toggleSelectedGroup: (groupId) => api.patch(`/whatsapp/selected-groups/${groupId}/toggle`),
 
     // Send messages
     sendMessage: (phone, message) => api.post('/whatsapp/send', { phone, message }),
@@ -141,6 +153,17 @@ export const uploadApi = {
     },
     getImages: () => api.get('/upload/images'),
     deleteImage: (filename) => api.delete(`/upload/image/${filename}`),
+};
+
+// פונקציה לקבלת URL בסיס לתמונות
+export const getImageBaseURL = () => {
+    return getBaseURL();
+};
+
+// פונקציה לקבלת URL מלא לתמונה של משתמש
+export const getUserImageURL = (imagePath) => {
+    const baseURL = getBaseURL();
+    return `${baseURL}/${imagePath}`;
 };
 
 export default api;

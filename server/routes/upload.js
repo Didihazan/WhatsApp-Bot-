@@ -2,13 +2,25 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs').promises;
+const { auth } = require('../middleware/auth');
 const router = express.Router();
 
-// Configure multer for file uploads
+// Apply authentication to all routes
+router.use(auth);
+
+// Configure multer for file uploads with user separation
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const uploadDir = path.join(__dirname, '../uploads');
-        cb(null, uploadDir);
+    destination: async (req, file, cb) => {
+        // Create user-specific upload directory
+        const userUploadDir = path.join(__dirname, '../uploads', req.user._id.toString());
+
+        try {
+            await fs.access(userUploadDir);
+        } catch {
+            await fs.mkdir(userUploadDir, { recursive: true });
+        }
+
+        cb(null, userUploadDir);
     },
     filename: (req, file, cb) => {
         // Generate unique filename
@@ -39,7 +51,7 @@ const upload = multer({
     fileFilter: fileFilter
 });
 
-// Upload image
+// Upload image for current user
 router.post('/image', upload.single('image'), (req, res) => {
     try {
         if (!req.file) {
@@ -59,7 +71,8 @@ router.post('/image', upload.single('image'), (req, res) => {
                 filename: req.file.filename,
                 originalName: req.file.originalname,
                 path: relativePath,
-                size: req.file.size
+                size: req.file.size,
+                userId: req.user._id
             }
         });
     } catch (error) {
@@ -70,19 +83,19 @@ router.post('/image', upload.single('image'), (req, res) => {
     }
 });
 
-// Get uploaded images
+// Get uploaded images for current user
 router.get('/images', async (req, res) => {
     try {
-        const uploadDir = path.join(__dirname, '../uploads');
+        const userUploadDir = path.join(__dirname, '../uploads', req.user._id.toString());
 
         try {
-            const files = await fs.readdir(uploadDir);
+            const files = await fs.readdir(userUploadDir);
             const imageFiles = files
                 .filter(file => /\.(jpg|jpeg|png|gif|webp)$/i.test(file))
                 .map(file => ({
                     filename: file,
-                    path: path.join('uploads', file),
-                    url: `/uploads/${file}`
+                    path: path.join('uploads', req.user._id.toString(), file),
+                    url: `/uploads/${req.user._id}/${file}`
                 }));
 
             res.json({
@@ -104,11 +117,23 @@ router.get('/images', async (req, res) => {
     }
 });
 
-// Delete image
+// Delete image for current user
 router.delete('/image/:filename', async (req, res) => {
     try {
         const { filename } = req.params;
-        const filePath = path.join(__dirname, '../uploads', filename);
+        const filePath = path.join(__dirname, '../uploads', req.user._id.toString(), filename);
+
+        // Check if file belongs to current user
+        const userUploadDir = path.join(__dirname, '../uploads', req.user._id.toString());
+        const requestedPath = path.resolve(filePath);
+        const userDirPath = path.resolve(userUploadDir);
+
+        if (!requestedPath.startsWith(userDirPath)) {
+            return res.status(403).json({
+                success: false,
+                message: 'אין הרשאה למחוק קובץ זה'
+            });
+        }
 
         await fs.unlink(filePath);
 
@@ -120,6 +145,32 @@ router.delete('/image/:filename', async (req, res) => {
         res.status(500).json({
             success: false,
             message: error.message
+        });
+    }
+});
+
+// Get image info for current user
+router.get('/image/:filename/info', async (req, res) => {
+    try {
+        const { filename } = req.params;
+        const filePath = path.join(__dirname, '../uploads', req.user._id.toString(), filename);
+
+        const stats = await fs.stat(filePath);
+
+        res.json({
+            success: true,
+            data: {
+                filename,
+                size: stats.size,
+                created: stats.birthtime,
+                modified: stats.mtime,
+                path: path.join('uploads', req.user._id.toString(), filename)
+            }
+        });
+    } catch (error) {
+        res.status(404).json({
+            success: false,
+            message: 'תמונה לא נמצאה'
         });
     }
 });
